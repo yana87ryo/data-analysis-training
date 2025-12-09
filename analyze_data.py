@@ -6,7 +6,7 @@ import glob
 matplotlib.rcParams['font.family'] = 'MS Gothic'
 
 # 複数CSVファイルを読み込む（24277〜24300）
-csv_files = sorted(glob.glob('sample/2*.csv'))
+csv_files = sorted(glob.glob('data/monthly-individual-merchant-profile-vectors-v02-2x2/2*.csv'))
 dfs = []
 for csv_file in csv_files:
     df = pd.read_csv(csv_file, encoding='utf-8-sig')

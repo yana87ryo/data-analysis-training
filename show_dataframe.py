@@ -52,7 +52,7 @@ column_names = [
 ]
 
 # 複数CSVファイルを読み込む（24277〜24300）
-csv_files = sorted(glob.glob('sample/2*.csv'))
+csv_files = sorted(glob.glob('data/monthly-individual-merchant-profile-vectors-v02-2x2/2*.csv'))
 
 print(f"=== 読み込み対象ファイル ({len(csv_files)}件) ===")
 for f in csv_files:
