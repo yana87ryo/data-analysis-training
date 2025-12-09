@@ -1,4 +1,6 @@
 import pandas as pd
+import glob
+import os
 
 # カラム名を明示的に指定
 column_names = [
@@ -49,20 +51,38 @@ column_names = [
     'Prev. 2DR Cell (2x2,  VTxT)'
 ]
 
-# CSVファイルを読み込む（ヘッダーをスキップして、指定したカラム名を使用）
-df = pd.read_csv('sample/sample.csv', encoding='utf-8-sig', header=0, names=column_names)
+# 複数CSVファイルを読み込む（24277〜24300）
+csv_files = sorted(glob.glob('sample/2*.csv'))
+
+print(f"=== 読み込み対象ファイル ({len(csv_files)}件) ===")
+for f in csv_files:
+    print(f"  - {os.path.basename(f)}")
+print()
+
+# 全ファイルを結合
+dfs = []
+for csv_file in csv_files:
+    df = pd.read_csv(csv_file, encoding='utf-8-sig', header=0, names=column_names)
+    dfs.append(df)
+
+df_all = pd.concat(dfs, ignore_index=True)
 
 # データフレームの基本情報を表示
 print("=== データフレームの形状 ===")
-print(f"行数: {df.shape[0]}, 列数: {df.shape[1]}")
+print(f"行数: {df_all.shape[0]}, 列数: {df_all.shape[1]}")
+print(f"Period範囲: {df_all['Period'].min()} 〜 {df_all['Period'].max()}")
 print()
 
-print("=== 指定したカラム名一覧 ===")
+print("=== カラム名一覧 ===")
 for i, col in enumerate(column_names):
     print(f"{i+1}. {col}")
 print()
 
-print("=== データフレームの内容 ===")
+print("=== データフレームの内容（先頭10行） ===")
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
-print(df)
+print(df_all.head(10))
+print()
+
+print("=== データフレームの内容（末尾10行） ===")
+print(df_all.tail(10))
