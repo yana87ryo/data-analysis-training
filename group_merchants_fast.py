@@ -3,6 +3,8 @@ import glob
 import os
 import unicodedata
 import re
+import random
+from collections import defaultdict
 from difflib import SequenceMatcher
 from IPython.display import clear_output
 
@@ -10,11 +12,10 @@ from IPython.display import clear_output
 # 設定値（ここを変更するとプログラム全体に反映されます）
 # =============================================================================
 
-# 類似度の閾値（0.0〜1.0）
-# - 店名同士を比較して、この値以上の類似度であれば同じグループとみなす
-# - 例: 0.8 = 80%以上一致で同一グループ
-# - 高くすると厳密（グループが細かくなる）、低くすると緩やか（グループが大きくなる）
-SIMILARITY_THRESHOLD = 0.8
+# 前方一致の文字数
+# - 正規化後の先頭N文字が同じなら同一グループとみなす
+# - 小さいと誤グループ化が増える、大きいと類似店名を見逃す
+PREFIX_LENGTH = 3
 
 # =============================================================================
 
@@ -31,41 +32,31 @@ def normalize_text(text):
     return text
 
 
-def calc_similarity(str1, str2):
-    """2つの文字列の類似度を計算（0.0〜1.0）"""
-    return SequenceMatcher(None, str1, str2).ratio()
-
-
 def select_best_representative(members, normalized_cache=None):
-    """グループ内で最も他メンバーと類似度が高い店名を代表として選ぶ
-
-    Args:
-        members: メンバーリスト
-        normalized_cache: 正規化済み文字列のキャッシュ {原文: 正規化文字列}
-    """
+    """グループ内で最も他メンバーと類似度が高い店名を代表として選ぶ"""
     if len(members) <= 1:
         return members[0] if members else ""
 
     # 大きなグループはサンプリングして計算量を削減
     MAX_SAMPLE = 50
     if len(members) > MAX_SAMPLE:
-        import random
         sample_members = random.sample(members, MAX_SAMPLE)
     else:
         sample_members = members
 
-    # 正規化をキャッシュから取得（なければ計算）
     def get_normalized(text):
         if normalized_cache and text in normalized_cache:
             return normalized_cache[text]
         return normalize_text(text)
+
+    def calc_similarity(str1, str2):
+        return SequenceMatcher(None, str1, str2).ratio()
 
     best_rep = members[0]
     best_total_similarity = 0
 
     for candidate in sample_members:
         candidate_norm = get_normalized(candidate)
-        # 他のメンバーとの類似度の合計を計算
         total_similarity = sum(
             calc_similarity(candidate_norm, get_normalized(other))
             for other in sample_members if other != candidate
@@ -77,13 +68,26 @@ def select_best_representative(members, normalized_cache=None):
     return best_rep
 
 
-def group_merchants(merchant_names, threshold=SIMILARITY_THRESHOLD):
-    """店名を類似度でグルーピングする"""
-    groups = []  # [(代表名, 正規化名, [メンバーリスト]), ...]
+def group_merchants_fast(merchant_names, prefix_len=PREFIX_LENGTH):
+    """店名を前方一致でグルーピングする（高速版）
+
+    正規化後の先頭N文字が同じなら同一グループとみなす。
+    類似度計算を省略することで高速化。
+
+    Args:
+        merchant_names: 店名リスト
+        prefix_len: 前方一致の文字数
+
+    Returns:
+        [(代表名, [メンバーリスト]), ...]
+    """
     total = len(merchant_names)
 
-    # 正規化結果をキャッシュ（同じ文字列を何度も正規化しない）
+    # 正規化結果をキャッシュ
     normalized_cache = {}
+
+    # 前方一致でグループ化: {先頭N文字: [店名リスト]}
+    prefix_groups = defaultdict(list)
 
     for idx, name in enumerate(merchant_names):
         # キャッシュを活用した正規化
@@ -96,44 +100,38 @@ def group_merchants(merchant_names, threshold=SIMILARITY_THRESHOLD):
         if not normalized:
             continue
 
-        # 進捗表示（1000件ごと）
-        if idx > 0 and idx % 1000 == 0:
+        # 進捗表示（10000件ごと）
+        if idx > 0 and idx % 10000 == 0:
             clear_output(wait=True)
-            print(f"グルーピング中: {idx:,}/{total:,} ({idx*100//total}%) - グループ数: {len(groups):,}")
+            print(f"グルーピング中: {idx:,}/{total:,} ({idx*100//total}%)")
 
-        # 既存グループとの類似度をチェック
-        matched_group = None
-        max_similarity = 0
-
-        for i, (rep_name, rep_normalized, members) in enumerate(groups):
-            similarity = calc_similarity(normalized, rep_normalized)
-
-            if similarity >= threshold and similarity > max_similarity:
-                max_similarity = similarity
-                matched_group = i
-
-        if matched_group is not None:
-            # 既存グループに追加
-            groups[matched_group][2].append(name)
-        else:
-            # 新規グループ作成
-            groups.append((name, normalized, [name]))
+        # 先頭N文字でグループ化
+        prefix = normalized[:prefix_len] if len(normalized) >= prefix_len else normalized
+        prefix_groups[prefix].append(name)
 
     clear_output(wait=True)
-    print(f"グルーピング完了: {total:,}/{total:,} (100%) - グループ数: {len(groups):,}")
+    print(f"グルーピング完了: {total:,}/{total:,} (100%) - グループ数: {len(prefix_groups):,}")
 
     # 各グループの代表名を再選定（最も他メンバーと類似する店名）
     print("代表名を再選定中...")
     result = []
-    for i, (rep_name, rep_normalized, members) in enumerate(groups):
-        if i > 0 and i % 1000 == 0:
-            clear_output(wait=True)
-            print(f"代表名再選定中: {i:,}/{len(groups):,} ({i*100//len(groups)}%)")
-        best_rep = select_best_representative(members, normalized_cache)
+    groups_list = list(prefix_groups.values())
+    multi_member_count = sum(1 for members in groups_list if len(members) > 1)
+
+    processed = 0
+    for members in groups_list:
+        if len(members) > 1:
+            processed += 1
+            if processed > 0 and processed % 1000 == 0:
+                clear_output(wait=True)
+                print(f"代表名再選定中: {processed:,}/{multi_member_count:,} ({processed*100//multi_member_count}%)")
+            best_rep = select_best_representative(members, normalized_cache)
+        else:
+            best_rep = members[0]
         result.append((best_rep, members))
 
     clear_output(wait=True)
-    print(f"完了: {len(result):,} グループ")
+    print(f"完了: {len(result):,} グループ（うち複数メンバー: {multi_member_count:,}）")
 
     return result
 
@@ -144,7 +142,6 @@ def find_longest_common_substring(str1, str2):
         return ""
 
     m, n = len(str1), len(str2)
-    # DPテーブル
     dp = [[0] * (n + 1) for _ in range(m + 1)]
     max_len = 0
     end_pos = 0
@@ -168,7 +165,6 @@ def extract_common_keyword_from_group(members):
     if not members or len(members) < 2:
         return ""
 
-    # 全メンバーを正規化
     normalized_members = [normalize_text(m) for m in members if normalize_text(m)]
 
     if len(normalized_members) < 2:
@@ -201,22 +197,15 @@ def extract_common_keyword_from_group(members):
 def export_grouping_master(groups, output_path='output/merchant_grouping_master.csv'):
     """グルーピング結果をマスタCSVとして出力する
 
-    出力形式:
-        keyword: 部分一致用キーワード（正規化済み）
-        merchant_name: 元の店名
-
     ※ 2件以上のグループのみ出力（1件のグループは出力しない）
     """
-    # 出力ディレクトリを作成
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     rows = []
     for group_name, members in groups:
-        # 1件のグループはスキップ
         if len(members) < 2:
             continue
 
-        # グループ内の店舗名から共通キーワードを抽出
         keyword = extract_common_keyword_from_group(members)
 
         for member in members:
@@ -237,44 +226,47 @@ def main():
     csv_files = sorted(glob.glob(f'{csv_dir}/2*.csv'))
 
     print("=" * 60)
-    print("店名グルーピングマスタ生成")
+    print("店名グルーピングマスタ生成（高速版）")
     print("=" * 60)
     print(f"対象ファイル数: {len(csv_files)} 件")
-    print(f"類似度閾値: {SIMILARITY_THRESHOLD * 100:.0f}%")
+    print(f"前方一致文字数: {PREFIX_LENGTH} 文字")
     print()
 
     # 全ファイルから店名を抽出
+    print("店名を抽出中...")
     all_merchants = set()
-    for csv_file in csv_files:
+    for i, csv_file in enumerate(csv_files):
+        if i > 0 and i % 10 == 0:
+            clear_output(wait=True)
+            print(f"ファイル読み込み中: {i}/{len(csv_files)}")
         df = pd.read_csv(csv_file, encoding='utf-8-sig')
-        # Merchant Name列を取得（4列目）
         merchant_col = df.columns[3]
         merchants = df[merchant_col].dropna().unique()
         all_merchants.update(merchants)
 
     merchant_list = sorted(all_merchants)
-    print(f"ユニークな店名数: {len(merchant_list)} 件")
+    clear_output(wait=True)
+    print(f"ユニークな店名数: {len(merchant_list):,} 件")
     print()
 
     # グルーピング実行
-    groups = group_merchants(merchant_list, SIMILARITY_THRESHOLD)
+    groups = group_merchants_fast(merchant_list, PREFIX_LENGTH)
 
     # 結果表示
     print("=" * 60)
     print("グルーピング結果")
     print("=" * 60)
-    print(f"グループ数: {len(groups)} 件")
+    print(f"グループ数: {len(groups):,} 件")
     print()
 
-    # 複数メンバーを持つグループのみ表示
     multi_member_groups = [(rep, members) for rep, members in groups if len(members) > 1]
 
     if multi_member_groups:
-        print("【複数店舗を含むグループ】")
+        print("【複数店舗を含むグループ（先頭10件）】")
         print("-" * 40)
-        for i, (rep_name, members) in enumerate(multi_member_groups[:10], 1):  # 最初の10グループのみ表示
+        for i, (rep_name, members) in enumerate(multi_member_groups[:10], 1):
             print(f"\nグループ {i}: {rep_name}")
-            for member in members[:5]:  # 各グループ最大5件
+            for member in members[:5]:
                 print(f"  - {member}")
             if len(members) > 5:
                 print(f"  ... 他 {len(members) - 5} 件")
@@ -290,7 +282,7 @@ def main():
     print("=" * 60)
     output_path, row_count = export_grouping_master(groups)
     print(f"出力ファイル: {output_path}")
-    print(f"出力レコード数: {row_count} 件")
+    print(f"出力レコード数: {row_count:,} 件")
     print()
     print("【CSVカラム説明】")
     print("  - keyword: 部分一致用キーワード（正規化済み）")
