@@ -3,6 +3,7 @@ import glob
 import os
 import sys
 import unicodedata
+import time
 from difflib import SequenceMatcher
 
 # Windows環境での日本語出力対応
@@ -31,19 +32,27 @@ def calc_similarity(str1, str2):
 
 def group_merchants(merchant_names, threshold=SIMILARITY_THRESHOLD):
     """店名を類似度でグルーピングする"""
-    groups = []  # [(代表名, [メンバーリスト]), ...]
+    groups = []  # [(代表名, 正規化名, [メンバーリスト]), ...]
+    total = len(merchant_names)
+    start_time = time.time()
 
-    for name in merchant_names:
+    for idx, name in enumerate(merchant_names):
         normalized = normalize_text(name)
         if not normalized:
             continue
+
+        # 進捗表示
+        if idx > 0 and idx % 10 == 0:
+            elapsed = time.time() - start_time
+            avg_time = elapsed / idx
+            remaining = avg_time * (total - idx)
+            print(f"\r処理中: {idx}/{total} ({idx*100//total}%) - 残り約 {remaining:.1f}秒", end="", flush=True)
 
         # 既存グループとの類似度をチェック
         matched_group = None
         max_similarity = 0
 
-        for i, (rep_name, members) in enumerate(groups):
-            rep_normalized = normalize_text(rep_name)
+        for i, (rep_name, rep_normalized, members) in enumerate(groups):
             similarity = calc_similarity(normalized, rep_normalized)
 
             if similarity >= threshold and similarity > max_similarity:
@@ -52,12 +61,16 @@ def group_merchants(merchant_names, threshold=SIMILARITY_THRESHOLD):
 
         if matched_group is not None:
             # 既存グループに追加
-            groups[matched_group][1].append(name)
+            groups[matched_group][2].append(name)
         else:
             # 新規グループ作成
-            groups.append((name, [name]))
+            groups.append((name, normalized, [name]))
 
-    return groups
+    # 進捗表示をクリア
+    print(f"\r処理完了: {total}/{total} (100%)                    ")
+
+    # 結果から正規化名を除去して返す
+    return [(rep, members) for rep, _, members in groups]
 
 
 def main():
