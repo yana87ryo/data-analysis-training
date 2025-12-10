@@ -228,8 +228,8 @@ def export_grouping_master(groups, merchant_counts, output_path='output/merchant
 
 def main():
     # CSVファイルを取得
-    csv_dir = 'data/monthly-individual-merchant-profile-vectors-v02-2x2'
-    csv_files = sorted(glob.glob(f'{csv_dir}/2*.csv'))
+    csv_dir = 'data'
+    csv_files = sorted(glob.glob(f'{csv_dir}/tran*.csv'))
 
     print("=" * 60)
     print("店名グルーピングマスタ生成（高速版）")
