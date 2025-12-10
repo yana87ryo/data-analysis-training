@@ -225,6 +225,22 @@ def export_grouping_master(groups, merchant_counts, output_path='output/merchant
             })
 
     df = pd.DataFrame(rows)
+
+    # keywordごとのgroup_countを取得（重複排除）
+    keyword_counts = df.drop_duplicates('keyword')[['keyword', 'group_count']].copy()
+    keyword_counts = keyword_counts.sort_values('group_count', ascending=False)
+
+    # 累積計算
+    keyword_counts['cumsum_count'] = keyword_counts['group_count'].cumsum()
+    total = keyword_counts['group_count'].sum()
+    keyword_counts['cumsum_percent'] = (keyword_counts['cumsum_count'] / total * 100).round(2)
+
+    # 元のDataFrameにマージ
+    df = df.merge(keyword_counts[['keyword', 'cumsum_count', 'cumsum_percent']], on='keyword')
+
+    # group_countの降順でソート
+    df = df.sort_values('group_count', ascending=False)
+
     df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
     return output_path, len(rows)
@@ -299,7 +315,7 @@ def main():
     print("  - merchant_name: 元の店名")
     print("  - count: 元データでの出現回数")
     print("  - group_count: グループ全体のcount合計")
+    print("  - cumsum_count: group_countの累積値（降順）")
+    print("  - cumsum_percent: 累積割合（%）")
 
-
-# Jupyter Notebookで実行する場合は main() を呼び出してください
-# main()
+main()
