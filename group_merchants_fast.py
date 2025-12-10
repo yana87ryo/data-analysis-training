@@ -208,10 +208,11 @@ def export_grouping_master(groups, merchant_counts, output_path='output/merchant
 
     rows = []
     for group_name, members in groups:
-        if len(members) < 2:
-            continue
-
-        keyword = extract_common_keyword_from_group(members)
+        # キーワード抽出（1件の場合は店名をそのままキーワードに）
+        if len(members) >= 2:
+            keyword = extract_common_keyword_from_group(members)
+        else:
+            keyword = normalize_text(members[0])
 
         # グループ全体のcount合計を計算
         group_count = sum(merchant_counts.get(member, 0) for member in members)
