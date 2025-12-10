@@ -213,11 +213,15 @@ def export_grouping_master(groups, merchant_counts, output_path='output/merchant
 
         keyword = extract_common_keyword_from_group(members)
 
+        # グループ全体のcount合計を計算
+        group_count = sum(merchant_counts.get(member, 0) for member in members)
+
         for member in members:
             rows.append({
                 'keyword': keyword,
                 'merchant_name': member,
-                'count': merchant_counts.get(member, 0)
+                'count': merchant_counts.get(member, 0),
+                'group_count': group_count
             })
 
     df = pd.DataFrame(rows)
@@ -294,6 +298,7 @@ def main():
     print("  - keyword: 部分一致用キーワード（正規化済み）")
     print("  - merchant_name: 元の店名")
     print("  - count: 元データでの出現回数")
+    print("  - group_count: グループ全体のcount合計")
 
 
 # Jupyter Notebookで実行する場合は main() を呼び出してください
