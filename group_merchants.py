@@ -3,6 +3,7 @@ import glob
 import os
 import unicodedata
 import re
+from collections import Counter
 from difflib import SequenceMatcher
 from IPython.display import clear_output
 
@@ -198,14 +199,20 @@ def extract_common_keyword_from_group(members):
     return keyword if len(keyword) >= 2 else shortest[:10]
 
 
-def export_grouping_master(groups, output_path='output/merchant_grouping_master.csv'):
+def export_grouping_master(groups, merchant_counts, output_path='output/merchant_grouping_master.csv'):
     """グルーピング結果をマスタCSVとして出力する
 
     出力形式:
         keyword: 部分一致用キーワード（正規化済み）
         merchant_name: 元の店名
+        count: 元データでの出現回数
 
     ※ 2件以上のグループのみ出力（1件のグループは出力しない）
+
+    Args:
+        groups: グルーピング結果 [(代表名, [メンバーリスト]), ...]
+        merchant_counts: 各店舗名の出現回数 Counter
+        output_path: 出力ファイルパス
     """
     # 出力ディレクトリを作成
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -222,7 +229,8 @@ def export_grouping_master(groups, output_path='output/merchant_grouping_master.
         for member in members:
             rows.append({
                 'keyword': keyword,
-                'merchant_name': member
+                'merchant_name': member,
+                'count': merchant_counts.get(member, 0)
             })
 
     df = pd.DataFrame(rows)
@@ -243,16 +251,16 @@ def main():
     print(f"類似度閾値: {SIMILARITY_THRESHOLD * 100:.0f}%")
     print()
 
-    # 全ファイルから店名を抽出
-    all_merchants = set()
+    # 全ファイルから店名を抽出（出現回数もカウント）
+    merchant_counts = Counter()
     for csv_file in csv_files:
         df = pd.read_csv(csv_file, encoding='utf-8-sig')
-        # Merchant Name列を取得（4列目）
-        merchant_col = df.columns[3]
-        merchants = df[merchant_col].dropna().unique()
-        all_merchants.update(merchants)
+        # Merchant Name列を取得（6列目）
+        merchant_col = df.columns[5]
+        merchants = df[merchant_col].dropna()
+        merchant_counts.update(merchants)
 
-    merchant_list = sorted(all_merchants)
+    merchant_list = sorted(merchant_counts.keys())
     print(f"ユニークな店名数: {len(merchant_list)} 件")
     print()
 
@@ -288,13 +296,14 @@ def main():
     print("=" * 60)
     print("マスタCSV出力")
     print("=" * 60)
-    output_path, row_count = export_grouping_master(groups)
+    output_path, row_count = export_grouping_master(groups, merchant_counts)
     print(f"出力ファイル: {output_path}")
     print(f"出力レコード数: {row_count} 件")
     print()
     print("【CSVカラム説明】")
     print("  - keyword: 部分一致用キーワード（正規化済み）")
     print("  - merchant_name: 元の店名")
+    print("  - count: 元データでの出現回数")
 
 
 # Jupyter Notebookで実行する場合は main() を呼び出してください
